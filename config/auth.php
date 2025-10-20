@@ -18,6 +18,17 @@ return [
         'passwords' => env('AUTH_PASSWORD_BROKER', 'users'),
     ],
 
+    'passwords' => [
+    'users' => [
+        'provider' => 'users',
+        'table' => 'password_resets',
+        'expire' => 60,
+        'throttle' => 60,
+        'url' => env('http://localhost:5173').'/forgot-password', // si Laravel >= 10
+    ],
+],
+
+
     /*
     |--------------------------------------------------------------------------
     | Authentication Guards
