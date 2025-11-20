@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 class Mycontroller extends Controller
 {
     
+    
     public function index()
     {
        $profiles = User::all();
@@ -17,6 +18,7 @@ class Mycontroller extends Controller
 
         );
     }
+    
 
     public function show(Request $request)
     {
@@ -51,6 +53,12 @@ class Mycontroller extends Controller
             'password' => bcrypt($request->password)
     
         ]);
+        
+         if ($request->hasFile('avatar')) {
+        $file = $request->file('avatar');
+        $path = $file->store('avatars', 'public'); // stockage dans storage/app/public/avatars
+        $user->avatar = $path;
+         }
 
       
             return redirect('/')->with('success', 'User created successfully.');
