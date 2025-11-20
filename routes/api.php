@@ -8,6 +8,7 @@ use Illuminate\Validation\ValidationException;
 use App\Http\Controllers\Auth\ForgotPasswordController;
 use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\VerificationController;
+use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;;
 
@@ -18,7 +19,15 @@ Route::get('/forgot-password/{token}', function ($token) {
 })->name('password.reset');
 Route::post('/send-verification-code', [VerificationController::class, 'sendCode']);
 Route::post('/verify-code', [VerificationController::class, 'verifyCode']);
+Route::get('/users', [UserController::class, 'index']);
+Route::get('/admin', function () {
+    return User::where('role', 'admin')->first();
 
+});
+
+use App\Http\Controllers\ChambreController;
+
+Route::post('/chambres', [ChambreController::class, 'store']);
 
 
 

@@ -1,0 +1,20 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class Chambre extends Model
+{
+    use HasFactory;
+
+    // Champs autorisés à la création (mass assignable)
+    protected $fillable = [
+        'numero',
+        'type',
+        'capacite',
+        'prix',
+        'photo',
+    ];
+}
