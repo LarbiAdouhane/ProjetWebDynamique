@@ -7,8 +7,7 @@ use Illuminate\Http\Request;
 
 class Mycontroller extends Controller
 {
-    
-    
+     
     public function index()
     {
        $profiles = User::all();
