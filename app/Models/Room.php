@@ -26,6 +26,7 @@ class Room extends Model
         
         return $this->belongsTo(RoomType::class);
      }
+     
     
 
 }

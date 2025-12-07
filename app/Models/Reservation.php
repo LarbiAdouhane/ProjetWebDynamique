@@ -3,7 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use App\Models\Room; // ✅ IMPORT MANQUANT
+use App\Models\Room; 
 
 class Reservation extends Model
 {
@@ -24,8 +24,14 @@ class Reservation extends Model
         'check_out' => 'date'
     ];
 
+   
+    public function client()
+    {
+        return $this->belongsTo(User::class, 'client_id');
+    }
+
     public function room()
     {
-        return $this->belongsTo(Room::class);
+        return $this->belongsTo(Room::class, 'room_id');
     }
 }

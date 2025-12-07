@@ -12,5 +12,7 @@ Route::post('/forgot-password', [ForgotPasswordController::class, 'sendResetLink
 Route::get('/', [App\Http\Controllers\Mycontroller::class, 'index']);
 
 
+use App\Http\Controllers\Api\PayPalController;
 
-
+Route::get('/payment/success', [PayPalController::class, 'success'])->name('payment.success');
+Route::get('/payment/cancel', [PayPalController::class, 'cancel'])->name('payment.cancel');

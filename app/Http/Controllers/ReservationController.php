@@ -10,78 +10,84 @@ use Illuminate\Support\Facades\Auth;
 
 class ReservationController extends Controller
 {
-public function index()
-{
-    $reservations = Reservation::with('room.roomType')->get();
+    public function index()
+    {
+        $reservations = Reservation::with('room.roomType')->get();
 
-    $transformedReservations = $reservations->map(function($reservation) {
+        $transformedReservations = $reservations->map(function ($reservation) {
 
-        // Dates
-        $dateDebut = Carbon::parse($reservation->date_debut);
-        $dateFin = Carbon::parse($reservation->date_fin);
 
-        // Durée
-        $jours = $dateDebut->diffInDays($dateFin);
+            $dateDebut = Carbon::parse($reservation->date_debut);
+            $dateFin = Carbon::parse($reservation->date_fin);
 
-        // Prix par nuit
-        $prixParNuit = $reservation->room->roomType->base_prix ?? 0;
 
-        // ✅ Total calculé (ou stocké)
-        $total = $reservation->total_prix ?? ($prixParNuit * $jours);
+            $jours = $dateDebut->diffInDays($dateFin);
 
-        return [
+            $prixParNuit = $reservation->room->roomType->base_prix ?? 0;
+
+            $total = $reservation->total_prix ?? ($prixParNuit * $jours);
+
+            return [
+                'id' => $reservation->id,
+
+                'client_id' => $reservation->client_id,
+
+                'room_id' => $reservation->room->id ?? null,
+                'room_type' => $reservation->room->roomType->nom ?? null,
+
+                'date_debut' => $reservation->date_debut,
+                'date_fin' => $reservation->date_fin,
+                'jours' => $jours,
+
+                'base_prix' => $prixParNuit,
+                'total_prix' => $total,
+
+                'nbr_personnes' => $reservation->nbr_personnes,
+
+                'statut' => $reservation->statut,
+                'date_reservation' => $reservation->date_reservation
+            ];
+        });
+
+        return response()->json($transformedReservations);
+    }
+    public function createTemp(Request $request)
+    {
+        $request->validate([
+            'room_id' => 'required|exists:rooms,id',
+            'client_id' => 'nullable|exists:users,id',
+            'date_debut' => 'required|date',
+            'date_fin' => 'required|date|after_or_equal:date_debut',
+            'nbr_personnes' => 'required|integer|min:1',
+            'total_prix' => 'required|numeric|min:0',
+            'statut' => 'required|string',
+            'date_reservation' => 'required|date',
+        ]);
+
+        $reservation = Reservation::create($request->all());
+        return response()->json([
+            'success' => true,
             'id' => $reservation->id,
+        ]);
+    }
 
-            'client_id' => $reservation->client_id,
-
-            // Chambre
-            'room_id' => $reservation->room->id ?? null,
-            'room_type' => $reservation->room->roomType->nom ?? null,
-
-            // Dates
-            'date_debut' => $reservation->date_debut,
-            'date_fin' => $reservation->date_fin,
-            'jours' => $jours,
-
-            // Prix
-            'base_prix' => $prixParNuit,
-            'total_prix' => $total,
-
-            // Personnes
-            'nbr_personnes' => $reservation->nbr_personnes,
-
-            // Statut
-            'statut' => $reservation->statut,
-            'date_reservation' => $reservation->date_reservation
-        ];
-    });
-
-    return response()->json($transformedReservations);
-}
-
-    // ✅ CRÉER UNE RÉSERVATION
     public function store(Request $request)
     {
-        // Validation
         $validated = $request->validate([
             'room_id' => 'required|exists:rooms,id',
             'date_debut' => 'required|date',
             'date_fin' => 'required|date|after:date_debut',
         ]);
 
-        // Charger la chambre avec son type
         $room = Room::with('roomType')->findOrFail($request->room_id);
 
-        // Calcul nombre de jours
         $jours = Carbon::parse($request->date_debut)
-                ->diffInDays(Carbon::parse($request->date_fin));
+            ->diffInDays(Carbon::parse($request->date_fin));
 
-        // Si 0 jours → minimum 1
         $jours = max($jours, 1);
 
-        // Calcul total
         $total = $room->roomType->base_prix * $jours;
-        // Création réservation
+
         $reservation = Reservation::create([
             'client_id' => Auth::id(),
             'room_id' => $room->id,
@@ -89,17 +95,14 @@ public function index()
             'date_fin' => $request->date_fin,
             'nbr_personnes' => $room->roomType->capacite,
             'prix' => $room->roomType->base_prix,
-
             'statut' => 'En Attente',
             'date_reservation' => now(),
         ]);
-        
+
 
         return response()->json([
             'message' => '✅ Réservation créée avec succès',
             'reservation' => $reservation
         ], 201);
     }
-
- 
 }

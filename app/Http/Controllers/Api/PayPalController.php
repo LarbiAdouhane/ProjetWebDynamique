@@ -7,6 +7,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use App\Models\Reservation;
 use App\Models\Payment;
+use Illuminate\Support\Facades\Log;
+
 
 class PayPalController extends Controller
 {
@@ -30,12 +32,32 @@ class PayPalController extends Controller
         return $resp->json()['access_token'];
     }
 
-    /**
-     * 1️⃣ Créer une commande PayPal
-     */
+    public function success(Request $request)
+    {
+        $orderId = $request->query('token');
+        $payerId = $request->query('PayerID');
+
+        $paymentController = app(\App\Http\Controllers\Api\PayPalController::class);
+        $response = $paymentController->captureOrder(new Request([
+            'orderId' => $orderId,
+            'reservation_id' => session('reservation_id')
+        ]));
+
+        return view('payment.success', [
+            'orderId' => $orderId,
+            'payerId' => $payerId,
+            'payment_status' => $response->getData()->payment_status
+        ]);
+    }
+
+
+    public function cancel()
+    {
+        return "Paiement annulé par l'utilisateur.";
+    }
+
     public function createOrder(Request $request)
     {
-        // Validation des données
         $request->validate([
             'reservation_id' => 'required|exists:reservations,id',
             'amount' => 'required|numeric|min:0.01'
@@ -43,7 +65,7 @@ class PayPalController extends Controller
 
         $reservation = Reservation::findOrFail($request->reservation_id);
         $amount = number_format($request->amount, 2, '.', '');
-        $currency = env('PAYPAL_CURRENCY', 'EUR');
+        $currency = env('PAYPAL_CURRENCY', 'MAD');
 
         try {
             $token = $this->getAccessToken();
@@ -61,24 +83,19 @@ class PayPalController extends Controller
                             ]
                         ]
                     ],
-                    "application_context" => [
-                        "return_url" => url('/payment/success'),
-                        "cancel_url" => url('/payment/cancel'),
-                        "brand_name" => env('APP_NAME', 'Votre Application')
-                    ]
+
                 ]
             );
 
             if ($response->failed()) {
                 return response()->json([
-                    'error' => 'Erreur PayPal : Création de commande échouée.',
+                    'error' => 'Erreur PayPal : création de commande échouée',
                     'details' => $response->body()
                 ], 500);
             }
 
             $orderData = $response->json();
 
-            // Créer un enregistrement de paiement en attente
             Payment::create([
                 'reservation_id' => $reservation->id,
                 'montant' => $amount,
@@ -88,8 +105,12 @@ class PayPalController extends Controller
                 'currency' => $currency
             ]);
 
-            return response()->json($orderData);
+            $approvalUrl = collect($orderData['links'])->firstWhere('rel', 'approve')['href'] ?? null;
 
+            return response()->json([
+                'order_id' => $orderData['id'],   // ✅ ESSENTIEL
+                'approval_url' => $approvalUrl
+            ]);
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Erreur interne du serveur',
@@ -98,73 +119,91 @@ class PayPalController extends Controller
         }
     }
 
-    /**
-     * 2️⃣ Capturer le paiement PayPal + Enregistrer en BD
-     */
     public function captureOrder(Request $request)
     {
-        // Validation des données
         $request->validate([
-            'orderId' => 'required',
-            'reservation_id' => 'required|exists:reservations,id'
+            'reservation_id' => 'required|exists:reservations,id',
+            'orderId' => 'required|string'
         ]);
 
-        try {
-            $reservation = Reservation::findOrFail($request->reservation_id);
-            $token = $this->getAccessToken();
+        $reservation = Reservation::findOrFail($request->reservation_id);
 
-            $response = Http::withToken($token)
-                ->post($this->baseUrl() . "/v2/checkout/orders/{$request->orderId}/capture");
+        if ($request->query('test') === 'true') {
 
-            if ($response->failed()) {
-                // Marquer le paiement comme échoué
-                Payment::where('order_id', $request->orderId)
-                    ->where('reservation_id', $request->reservation_id)
-                    ->update(['statut' => 'Échoué']);
-
-                return response()->json([
-                    'error' => 'Erreur PayPal : Capture échouée.',
-                    'details' => $response->body()
-                ], 500);
+            $payment = Payment::where('reservation_id', $reservation->id)->first();
+            if (!$payment) {
+                return response()->json(['error' => 'Paiement introuvable'], 404);
             }
+            $payment->update([
+                'statut' => 'Payé',
+                'date_paiement' => now()
+            ]);
+            $payment->save();
+            $reservation->update([
+                'payment_status' => 'Payé'
+            ]);
 
-            $data = $response->json();
-            $status = $data['status'] ?? 'unknown';
+            $reservation->save();
 
-            // Extraire montant capturé
-            $amount = $data['purchase_units'][0]['payments']['captures'][0]['amount']['value'] ?? $reservation->total_price;
-
-            // Mettre à jour le paiement
-            $payment = Payment::where('order_id', $request->orderId)
-                ->where('reservation_id', $request->reservation_id)
-                ->first();
-
-            if ($payment) {
-                $payment->update([
-                    'statut' => $status === 'COMPLETED' ? 'Payé' : 'Échoué',
-                    'date_paiement' => $status === 'COMPLETED' ? now() : null,
-                    'montant' => $amount
-                ]);
-            }
-
-            // Mettre à jour la réservation si payée
-            if ($status === 'COMPLETED') {
-                $reservation->update([
-                    'payment_status' => 'Payé',
-                ]);
-            }
 
             return response()->json([
                 'success' => true,
-                'status' => $status,
-                'payment_status' => $status === 'COMPLETED' ? 'Payé' : 'Échoué'
+                'status' => 'COMPLETED',
+                'fake' => true
             ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Erreur interne du serveur',
-                'message' => $e->getMessage()
-            ], 500);
         }
+
+        $orderId = $request->orderId;
+        $token = $this->getAccessToken();
+        $url = $this->baseUrl() . "/v2/checkout/orders/{$orderId}/capture";
+
+        $response = \Illuminate\Support\Facades\Http::withHeaders([
+            'Content-Type' => 'application/json',
+            'Accept' => 'application/json'
+        ])
+            ->withToken($token)
+            ->send('POST', $url, [
+                'body' => ''
+            ]);
+        $responseData = $response->json();
+
+        // ⭐ AJOUT DE LA PARTIE CAPTURE RÉUSSIE
+        if ($response->successful()) {
+            $status = $responseData['status'] ?? 'UNKNOWN';
+            $captureStatus = $responseData['purchase_units'][0]['payments']['captures'][0]['status'] ?? 'UNKNOWN';
+
+            if ($status === 'COMPLETED' || $captureStatus === 'COMPLETED') {
+                $payment = Payment::where('order_id', $orderId)->first();
+
+                if ($payment) {
+                    $payment->update([
+                        'statut' => 'Payé',
+                        'date_paiement' => now(),
+                        'paypal_data' => json_encode($responseData)
+                    ]);
+                    $payment->save(); // ⭐ AJOUT ICI
+                }
+
+                $reservation->update([
+                    'payment_status' => 'Payé'
+                ]);
+                $reservation->save(); // ⭐ AJOUT ICI
+
+                return response()->json([
+                    'success' => true,
+                    'status' => 'COMPLETED',
+                    'message' => 'Paiement capturé avec succès'
+                ]);
+            }
+        }
+
+
+        return response()->json([
+            'URL' => $url,
+            'ORDER_ID' => $orderId,
+            'HTTP_CODE' => $response->status(),
+            'PAYPAL_RESPONSE' => $response->json(),
+            'RAW' => $response->body()
+        ]);
     }
 }
